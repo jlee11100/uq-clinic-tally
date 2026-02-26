@@ -38,7 +38,7 @@
         .hidden { display: none; }
         #dates-list { margin: 20px 0; display: flex; flex-wrap: wrap; gap: 10px; }
         .date-wrapper { position: relative; display: inline-block; }
-        .date-btn { background: #6c757d; color: white; padding: 8px 30px 8px 12px; }
+        .date-btn { background: #6c757d; color: white; padding: 8px 30px 8px 12px; position: relative; }
         .delete-date { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); background: #dc3545; color: white; border: none; padding: 2px 6px; font-size: 0.8em; cursor: pointer; border-radius: 3px; }
         #import-section { margin: 30px 0; padding: 20px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; text-align: center; }
         #import-file { margin: 10px auto; display: block; }
@@ -97,65 +97,41 @@
 
     <button id="export" onclick="exportToCSV()">Export All Courses to CSV</button>
 
-    <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <!-- Firebase SDKs - lazy loaded -->
+    <script>
+        let firebaseLoaded = false;
+
+        function loadFirebase() {
+            if (firebaseLoaded) return;
+            firebaseLoaded = true;
+
+            const sdkVersion = '10.14.1';
+            const scripts = [
+                `https://www.gstatic.com/firebasejs/${sdkVersion}/firebase-app-compat.js`,
+                `https://www.gstatic.com/firebasejs/${sdkVersion}/firebase-firestore-compat.js`,
+                `https://www.gstatic.com/firebasejs/${sdkVersion}/firebase-auth-compat.js`
+            ];
+
+            scripts.forEach(src => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = true;
+                script.onload = () => console.log(`Firebase SDK loaded: ${src}`);
+                script.onerror = () => console.error(`Failed to load Firebase SDK: ${src}`);
+                document.head.appendChild(script);
+            });
+        }
+
+        document.getElementById('googleSignInBtn').addEventListener('click', loadFirebase);
+        document.querySelector('.save-day').addEventListener('click', loadFirebase);
+    </script>
 
     <script>
-        // Firebase config & init
-        const firebaseConfig = {
-            apiKey: "AIzaSyDP6JXgZXX7Y4E6qg01HP2c0eOifgzxcqg",
-            authDomain: "uq-dent-clinic-tally.firebaseapp.com",
-            projectId: "uq-dent-clinic-tally",
-            storageBucket: "uq-dent-clinic-tally.appspot.com",
-            messagingSenderId: "699636553984",
-            appId: "1:699636553984:web:755f6131e37ed6d4d47be5",
-            measurementId: "G-6HRYNZLNP7"
-        };
-
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-        const auth = firebase.auth();
-
-        // Device/user ID fallback
+        let db = null;
+        let auth = null;
         let userId = localStorage.getItem('tallyUserId') || 'device_' + Math.random().toString(36).slice(2, 9);
         localStorage.setItem('tallyUserId', userId);
-        console.log("Your device ID:", userId);
 
-        // Auth state listener
-        auth.onAuthStateChanged(user => {
-            if (user) {
-                userId = user.uid;
-                localStorage.setItem('tallyUserId', userId);
-                document.getElementById('googleSignInBtn').style.display = 'none';
-                document.getElementById('signOutBtn').style.display = 'inline-block';
-                document.getElementById('userDisplay').textContent = `Signed in as ${user.displayName || user.email}`;
-                console.log("Signed in - using Google UID:", userId);
-            } else {
-                document.getElementById('googleSignInBtn').style.display = 'inline-block';
-                document.getElementById('signOutBtn').style.display = 'none';
-                document.getElementById('userDisplay').textContent = 'Not signed in (device mode)';
-                console.log("Signed out - using device ID:", userId);
-            }
-            loadCourseData();
-        });
-
-        // Sign in
-        document.getElementById('googleSignInBtn').onclick = () => {
-            const provider = new firebase.auth.GoogleAuthProvider();
-            auth.signInWithPopup(provider).catch(err => {
-                console.error("Google sign-in error:", err);
-                alert("Sign in failed: " + err.message);
-            });
-        };
-
-        // Sign out
-        document.getElementById('signOutBtn').onclick = () => {
-            auth.signOut().catch(err => console.error("Sign out error:", err));
-        };
-
-        // Categories
         const categories = [
             { name: "Examinations and Prevention", items: [
                 { name: "1. Comprehensive examination", code: "011" },
@@ -292,22 +268,10 @@
             loadDayData();
         }
 
-        async function loadDayData() {
+        function loadDayData() {
             currentDate = document.getElementById('clinicDate').value || new Date().toISOString().split('T')[0];
             const dates = storage.data[currentCourse]?.dates || {};
             currentCounts = dates[currentDate] || categories.map(cat => cat.items.map(() => 0));
-
-            try {
-                const doc = await db.collection('tallies').doc(userId)
-                    .collection('courses').doc(currentCourse)
-                    .collection('dates').doc(currentDate)
-                    .get();
-                if (doc.exists) {
-                    currentCounts = JSON.parse(doc.data().counts);
-                }
-            } catch (err) {
-                console.error("Cloud load failed:", err);
-            }
 
             render();
             updateDaySummary();
@@ -315,50 +279,55 @@
             listDates();
         }
 
-        async function saveDayData() {
+        function saveDayData() {
             const saveBtn = document.querySelector('.save-day');
             const originalText = saveBtn.textContent;
             saveBtn.textContent = 'Saving...';
             saveBtn.disabled = true;
             saveBtn.classList.add('saving');
 
-            try {
-                if (!storage.data[currentCourse]) storage.data[currentCourse] = { dates: {} };
-                storage.data[currentCourse].dates[currentDate] = currentCounts;
-                localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
+            if (!storage.data[currentCourse]) storage.data[currentCourse] = { dates: {} };
+            storage.data[currentCourse].dates[currentDate] = currentCounts;
+            localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
+            updateOverallSummary();
+            listDates();
 
-                await db.collection('tallies').doc(userId)
+            if (db && userId) {
+                db.collection('tallies').doc(userId)
                     .collection('courses').doc(currentCourse)
                     .collection('dates').doc(currentDate)
                     .set({
                         counts: JSON.stringify(currentCounts),
                         timestamp: firebase.firestore.FieldValue.serverTimestamp(),
                         lastUpdated: new Date().toISOString()
+                    })
+                    .then(() => {
+                        saveBtn.textContent = 'Saved!';
+                        saveBtn.classList.remove('saving');
+                        saveBtn.classList.add('success');
+                        setTimeout(() => {
+                            saveBtn.textContent = originalText;
+                            saveBtn.disabled = false;
+                            saveBtn.classList.remove('success');
+                        }, 1500);
+                    })
+                    .catch(error => {
+                        console.error('Cloud sync failed:', error);
+                        saveBtn.textContent = 'Local Saved';
+                        saveBtn.classList.remove('saving');
+                        setTimeout(() => {
+                            saveBtn.textContent = originalText;
+                            saveBtn.disabled = false;
+                        }, 2000);
                     });
-
-                saveBtn.textContent = 'Saved!';
+            } else {
+                saveBtn.textContent = 'Local Saved';
                 saveBtn.classList.remove('saving');
-                saveBtn.classList.add('success');
                 setTimeout(() => {
                     saveBtn.textContent = originalText;
                     saveBtn.disabled = false;
-                    saveBtn.classList.remove('success');
-                }, 1500);
-            } catch (error) {
-                console.error('Cloud save failed:', error);
-                saveBtn.textContent = 'Save Failed';
-                saveBtn.classList.remove('saving');
-                saveBtn.classList.add('failed');
-                setTimeout(() => {
-                    saveBtn.textContent = originalText;
-                    saveBtn.disabled = false;
-                    saveBtn.classList.remove('failed');
-                }, 3000);
-                alert('Cloud save failed: ' + (error.message || 'Unknown error') + '\nData saved locally only.');
+                }, 2000);
             }
-
-            updateOverallSummary();
-            listDates();
         }
 
         function resetDay() {
@@ -373,29 +342,47 @@
             const container = document.getElementById('categories');
             container.innerHTML = '';
 
-            categories.forEach((cat, ci) => {
-                const div = document.createElement('div');
-                div.className = 'category';
-                div.innerHTML = `<h2>${cat.name}</h2>`;
+            let index = 0;
+            const batchSize = 3; // adjust if needed (higher = faster but more risk of freeze)
 
-                cat.items.forEach((it, ii) => {
-                    const count = currentCounts?.[ci]?.[ii] ?? 0;
-                    const item = document.createElement('div');
-                    item.className = 'item';
-                    item.innerHTML = `
-                        <span class="item-name">
-                            ${it.name}${it.code ? ` <span class="item-code">(ADA: ${it.code})</span>` : ''}
-                        </span>
-                        <div class="controls">
-                            <input type="number" min="0" class="count-input" value="${count}" 
-                                   onchange="currentCounts[${ci}][${ii}] = Math.max(0, parseInt(this.value) || 0); updateDaySummary();">
-                        </div>
-                    `;
-                    div.appendChild(item);
-                });
+            function renderBatch() {
+                const end = Math.min(index + batchSize, categories.length);
+                const fragment = document.createDocumentFragment();
 
-                container.appendChild(div);
-            });
+                for (let ci = index; ci < end; ci++) {
+                    const cat = categories[ci];
+                    const div = document.createElement('div');
+                    div.className = 'category';
+                    div.innerHTML = `<h2>${cat.name}</h2>`;
+
+                    cat.items.forEach((it, ii) => {
+                        const count = currentCounts?.[ci]?.[ii] ?? 0;
+                        const item = document.createElement('div');
+                        item.className = 'item';
+                        item.innerHTML = `
+                            <span class="item-name">
+                                ${it.name}${it.code ? ` <span class="item-code">(ADA: ${it.code})</span>` : ''}
+                            </span>
+                            <div class="controls">
+                                <input type="number" min="0" class="count-input" value="${count}" 
+                                       onchange="currentCounts[${ci}][${ii}] = Math.max(0, parseInt(this.value) || 0); updateDaySummary();">
+                            </div>
+                        `;
+                        div.appendChild(item);
+                    });
+
+                    fragment.appendChild(div);
+                }
+
+                container.appendChild(fragment);
+
+                index = end;
+                if (index < categories.length) {
+                    requestAnimationFrame(renderBatch); // next batch when browser is ready
+                }
+            }
+
+            requestAnimationFrame(renderBatch);
         }
 
         function updateDaySummary() {
@@ -449,17 +436,38 @@
             const cont = document.getElementById('dates-list');
             cont.innerHTML = '';
             const dates = Object.keys(storage.data[currentCourse]?.dates || {}).sort().reverse();
+
             dates.forEach(d => {
                 const w = document.createElement('div');
                 w.className = 'date-wrapper';
+
                 const b = document.createElement('button');
                 b.className = 'date-btn';
                 b.textContent = d;
-                b.onclick = () => { document.getElementById('clinicDate').value = d; loadDayData(); };
+                b.addEventListener('click', () => {
+                    document.getElementById('clinicDate').value = d;
+                    loadDayData();
+                });
+
                 const del = document.createElement('button');
                 del.className = 'delete-date';
                 del.textContent = '×';
-                del.onclick = e => { e.stopPropagation(); deleteDay(d); };
+                del.addEventListener('click', e => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    e.stopImmediatePropagation();
+                    if (confirm(`Delete ${d} in ${currentCourse}?`)) {
+                        delete storage.data[currentCourse].dates[d];
+                        localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
+                        listDates(); // refresh list immediately
+                        if (d === currentDate) {
+                            currentDate = new Date().toISOString().split('T')[0];
+                            document.getElementById('clinicDate').value = currentDate;
+                            loadDayData();
+                        }
+                    }
+                }, true);
+
                 b.appendChild(del);
                 w.appendChild(b);
                 cont.appendChild(w);
