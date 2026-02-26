@@ -122,6 +122,7 @@
             });
         }
 
+        // Trigger Firebase load only on interaction
         document.getElementById('googleSignInBtn').addEventListener('click', loadFirebase);
         document.querySelector('.save-day').addEventListener('click', loadFirebase);
     </script>
@@ -214,7 +215,7 @@
 
         let currentCourse = storage.courses[0] || 'DENT7214';
         let currentDate = new Date().toISOString().split('T')[0];
-        let currentCounts;
+        let currentCounts = null;
 
         function init() {
             storage.courses.forEach(c => {
@@ -286,13 +287,25 @@
             saveBtn.disabled = true;
             saveBtn.classList.add('saving');
 
+            // Immediate local save
             if (!storage.data[currentCourse]) storage.data[currentCourse] = { dates: {} };
             storage.data[currentCourse].dates[currentDate] = currentCounts;
             localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
             updateOverallSummary();
             listDates();
 
+            // Cloud sync in background (non-blocking)
             if (db && userId) {
+                const timeoutId = setTimeout(() => {
+                    saveBtn.textContent = 'Local Saved';
+                    saveBtn.classList.remove('saving');
+                    setTimeout(() => {
+                        saveBtn.textContent = originalText;
+                        saveBtn.disabled = false;
+                    }, 2000);
+                    alert('Local save successful. Cloud sync timed out.');
+                }, 8000); // max 8 seconds
+
                 db.collection('tallies').doc(userId)
                     .collection('courses').doc(currentCourse)
                     .collection('dates').doc(currentDate)
@@ -302,6 +315,7 @@
                         lastUpdated: new Date().toISOString()
                     })
                     .then(() => {
+                        clearTimeout(timeoutId);
                         saveBtn.textContent = 'Saved!';
                         saveBtn.classList.remove('saving');
                         saveBtn.classList.add('success');
@@ -312,6 +326,7 @@
                         }, 1500);
                     })
                     .catch(error => {
+                        clearTimeout(timeoutId);
                         console.error('Cloud sync failed:', error);
                         saveBtn.textContent = 'Local Saved';
                         saveBtn.classList.remove('saving');
@@ -342,47 +357,29 @@
             const container = document.getElementById('categories');
             container.innerHTML = '';
 
-            let index = 0;
-            const batchSize = 3; // adjust if needed (higher = faster but more risk of freeze)
+            categories.forEach((cat, ci) => {
+                const div = document.createElement('div');
+                div.className = 'category';
+                div.innerHTML = `<h2>${cat.name}</h2>`;
 
-            function renderBatch() {
-                const end = Math.min(index + batchSize, categories.length);
-                const fragment = document.createDocumentFragment();
+                cat.items.forEach((it, ii) => {
+                    const count = currentCounts?.[ci]?.[ii] ?? 0;
+                    const item = document.createElement('div');
+                    item.className = 'item';
+                    item.innerHTML = `
+                        <span class="item-name">
+                            ${it.name}${it.code ? ` <span class="item-code">(ADA: ${it.code})</span>` : ''}
+                        </span>
+                        <div class="controls">
+                            <input type="number" min="0" class="count-input" value="${count}" 
+                                   onchange="currentCounts[${ci}][${ii}] = Math.max(0, parseInt(this.value) || 0); updateDaySummary();">
+                        </div>
+                    `;
+                    div.appendChild(item);
+                });
 
-                for (let ci = index; ci < end; ci++) {
-                    const cat = categories[ci];
-                    const div = document.createElement('div');
-                    div.className = 'category';
-                    div.innerHTML = `<h2>${cat.name}</h2>`;
-
-                    cat.items.forEach((it, ii) => {
-                        const count = currentCounts?.[ci]?.[ii] ?? 0;
-                        const item = document.createElement('div');
-                        item.className = 'item';
-                        item.innerHTML = `
-                            <span class="item-name">
-                                ${it.name}${it.code ? ` <span class="item-code">(ADA: ${it.code})</span>` : ''}
-                            </span>
-                            <div class="controls">
-                                <input type="number" min="0" class="count-input" value="${count}" 
-                                       onchange="currentCounts[${ci}][${ii}] = Math.max(0, parseInt(this.value) || 0); updateDaySummary();">
-                            </div>
-                        `;
-                        div.appendChild(item);
-                    });
-
-                    fragment.appendChild(div);
-                }
-
-                container.appendChild(fragment);
-
-                index = end;
-                if (index < categories.length) {
-                    requestAnimationFrame(renderBatch); // next batch when browser is ready
-                }
-            }
-
-            requestAnimationFrame(renderBatch);
+                container.appendChild(div);
+            });
         }
 
         function updateDaySummary() {
@@ -459,7 +456,7 @@
                     if (confirm(`Delete ${d} in ${currentCourse}?`)) {
                         delete storage.data[currentCourse].dates[d];
                         localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
-                        listDates(); // refresh list immediately
+                        listDates();
                         if (d === currentDate) {
                             currentDate = new Date().toISOString().split('T')[0];
                             document.getElementById('clinicDate').value = currentDate;
