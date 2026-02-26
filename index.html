@@ -41,6 +41,7 @@
         #import-file { margin: 10px auto; display: block; }
         #import-status { margin-top: 10px; font-weight: bold; }
         ul { margin: 5px 0 15px 30px; padding: 0; list-style-type: disc; }
+        #loading { text-align: center; color: #666; margin: 30px 0; font-size: 1.1em; }
     </style>
 </head>
 <body>
@@ -72,6 +73,7 @@
 
     <input type="text" id="search" placeholder="Search procedure or ADA code..." oninput="filterItems()">
 
+    <div id="loading">Loading procedures... Please wait.</div>
     <div id="categories"></div>
 
     <button class="save-day" onclick="saveDayData()">Save This Day</button>
@@ -94,67 +96,95 @@
 
     <button id="export" onclick="exportToCSV()">Export All Courses to CSV</button>
 
-    <!-- Firebase SDKs -->
-    <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-    <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-    <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <!-- Dynamic Firebase loading -->
+    <script>
+        window.addEventListener('load', function() {
+            const sdkVersion = '10.14.1';
+            const scripts = [
+                `https://www.gstatic.com/firebasejs/${sdkVersion}/firebase-app-compat.js`,
+                `https://www.gstatic.com/firebasejs/${sdkVersion}/firebase-firestore-compat.js`,
+                `https://www.gstatic.com/firebasejs/${sdkVersion}/firebase-auth-compat.js`
+            ];
+
+            scripts.forEach(src => {
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = true;
+                script.onload = () => console.log(`Firebase SDK loaded: ${src}`);
+                script.onerror = () => console.error(`Failed to load Firebase SDK: ${src}`);
+                document.head.appendChild(script);
+            });
+        });
+    </script>
 
     <script>
-        // Firebase config
-        const firebaseConfig = {
-            apiKey: "AIzaSyDP6JXgZXX7Y4E6qg01HP2c0eOifgzxcqg",
-            authDomain: "uq-dent-clinic-tally.firebaseapp.com",
-            projectId: "uq-dent-clinic-tally",
-            storageBucket: "uq-dent-clinic-tally.appspot.com",
-            messagingSenderId: "699636553984",
-            appId: "1:699636553984:web:755f6131e37ed6d4d47be5",
-            measurementId: "G-6HRYNZLNP7"
-        };
-
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-        const auth = firebase.auth();
-
-        // User ID (updated on login)
-        let userId = localStorage.getItem('tallyUserId') || 'device_' + Math.random().toString(36).slice(2, 9);
-        localStorage.setItem('tallyUserId', userId);
-
-        console.log("Initial device ID:", userId);
-        console.log("Firebase connected:", db);
-
-        // Auth state listener
-        auth.onAuthStateChanged(user => {
-            if (user) {
-                userId = user.uid;
-                document.getElementById('googleSignInBtn').style.display = 'none';
-                document.getElementById('signOutBtn').style.display = 'inline-block';
-                document.getElementById('userDisplay').textContent = `Signed in as ${user.displayName || user.email}`;
-                console.log("Signed in - User ID:", userId);
-                loadCourseData();
+        // Wait for Firebase
+        function waitForFirebase(callback) {
+            if (typeof firebase !== 'undefined' && firebase.initializeApp) {
+                console.log("Firebase ready");
+                callback();
             } else {
-                document.getElementById('googleSignInBtn').style.display = 'inline-block';
-                document.getElementById('signOutBtn').style.display = 'none';
-                document.getElementById('userDisplay').textContent = 'Not signed in (device mode)';
-                console.log("Signed out - using device ID:", userId);
-                loadCourseData();
+                console.log("Waiting for Firebase...");
+                setTimeout(() => waitForFirebase(callback), 200);
+            }
+        }
+
+        waitForFirebase(() => {
+            try {
+                const firebaseConfig = {
+                    apiKey: "AIzaSyDP6JXgZXX7Y4E6qg01HP2c0eOifgzxcqg",
+                    authDomain: "uq-dent-clinic-tally.firebaseapp.com",
+                    projectId: "uq-dent-clinic-tally",
+                    storageBucket: "uq-dent-clinic-tally.appspot.com",
+                    messagingSenderId: "699636553984",
+                    appId: "1:699636553984:web:755f6131e37ed6d4d47be5",
+                    measurementId: "G-6HRYNZLNP7"
+                };
+
+                firebase.initializeApp(firebaseConfig);
+                const db = firebase.firestore();
+                const auth = firebase.auth();
+
+                console.log("Firebase initialized");
+
+                let userId = localStorage.getItem('tallyUserId') || 'device_' + Math.random().toString(36).slice(2, 9);
+                localStorage.setItem('tallyUserId', userId);
+
+                auth.onAuthStateChanged(user => {
+                    console.log("Auth changed:", user ? "signed in" : "signed out");
+                    if (user) {
+                        userId = user.uid;
+                        document.getElementById('googleSignInBtn').style.display = 'none';
+                        document.getElementById('signOutBtn').style.display = 'inline-block';
+                        document.getElementById('userDisplay').textContent = `Signed in as ${user.displayName || user.email}`;
+                    } else {
+                        document.getElementById('googleSignInBtn').style.display = 'inline-block';
+                        document.getElementById('signOutBtn').style.display = 'none';
+                        document.getElementById('userDisplay').textContent = 'Not signed in (device mode)';
+                    }
+                    loadCourseData();
+                });
+
+                document.getElementById('googleSignInBtn').onclick = () => {
+                    console.log("Sign in clicked");
+                    const provider = new firebase.auth.GoogleAuthProvider();
+                    auth.signInWithPopup(provider).catch(err => {
+                        console.error("Sign-in error:", err);
+                        alert("Sign in failed: " + err.message);
+                    });
+                };
+
+                document.getElementById('signOutBtn').onclick = () => {
+                    console.log("Sign out clicked");
+                    auth.signOut().catch(err => console.error("Sign out error:", err));
+                };
+
+                init();
+            } catch (err) {
+                console.error("Firebase setup failed:", err);
             }
         });
 
-        // Sign in
-        document.getElementById('googleSignInBtn').onclick = () => {
-            const provider = new firebase.auth.GoogleAuthProvider();
-            auth.signInWithPopup(provider).catch(err => {
-                console.error("Google sign-in error:", err);
-                alert("Sign in failed: " + err.message);
-            });
-        };
-
-        // Sign out
-        document.getElementById('signOutBtn').onclick = () => {
-            auth.signOut().catch(err => console.error("Sign out error:", err));
-        };
-
-        // Categories
         const categories = [
             { name: "Examinations and Prevention", items: [
                 { name: "1. Comprehensive examination", code: "011" },
@@ -230,8 +260,6 @@
             ]}
         ];
 
-        const groupMaps = []; // removed since verification section is gone
-
         let storage = JSON.parse(localStorage.getItem('dental_multi_course_tally_v3')) || {
             courses: ['DENT7214', 'DENT7213'],
             data: {}
@@ -239,18 +267,28 @@
 
         let currentCourse = storage.courses[0] || 'DENT7214';
         let currentDate = new Date().toISOString().split('T')[0];
-        let currentCounts;
+        let currentCounts = null;
 
         function init() {
-            storage.courses.forEach(c => {
-                if (!storage.data[c]) storage.data[c] = { dates: {} };
-            });
-            populateCourses();
-            loadCourseData();
+            console.log("init started");
+            try {
+                storage.courses.forEach(c => {
+                    if (!storage.data[c]) storage.data[c] = { dates: {} };
+                });
+                populateCourses();
+                loadCourseData();
+            } catch (err) {
+                console.error("init error:", err);
+            }
         }
 
         function populateCourses() {
+            console.log("populateCourses started");
             const sel = document.getElementById('course-select');
+            if (!sel) {
+                console.error("course-select not found");
+                return;
+            }
             sel.innerHTML = '';
             storage.courses.forEach(c => {
                 const opt = document.createElement('option');
@@ -261,43 +299,24 @@
             sel.value = currentCourse;
             document.getElementById('current-course-name').textContent = currentCourse;
             document.getElementById('delete-course-btn').classList.toggle('hidden', storage.courses.length <= 1);
-        }
-
-        function addNewCourse() {
-            const name = document.getElementById('new-course-input').value.trim();
-            if (!name || storage.courses.includes(name)) return alert('Invalid or duplicate.');
-            storage.courses.push(name);
-            storage.data[name] = { dates: {} };
-            currentCourse = name;
-            localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
-            populateCourses();
-            document.getElementById('new-course-input').value = '';
-        }
-
-        function deleteCurrentCourse() {
-            if (storage.courses.length <= 1) return alert('Cannot delete your only course.');
-            if (!confirm(`Delete "${currentCourse}" and ALL data?`)) return;
-            if (!confirm('Confirm again — permanent.')) return;
-            const idx = storage.courses.indexOf(currentCourse);
-            storage.courses.splice(idx, 1);
-            delete storage.data[currentCourse];
-            currentCourse = storage.courses[0];
-            localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
-            populateCourses();
-            loadCourseData();
+            console.log("Courses populated:", storage.courses);
         }
 
         function loadCourseData() {
-            currentCourse = document.getElementById('course-select').value;
+            console.log("loadCourseData started");
+            currentCourse = document.getElementById('course-select')?.value || currentCourse;
             document.getElementById('current-course-name').textContent = currentCourse;
             loadDayData();
         }
 
         async function loadDayData() {
-            currentDate = document.getElementById('clinicDate').value || new Date().toISOString().split('T')[0];
+            console.log("loadDayData started");
+            currentDate = document.getElementById('clinicDate')?.value || new Date().toISOString().split('T')[0];
 
             const dates = storage.data[currentCourse]?.dates || {};
             currentCounts = dates[currentDate] || categories.map(cat => cat.items.map(() => 0));
+
+            console.log("currentCounts (local):", currentCounts);
 
             try {
                 const doc = await db.collection('tallies').doc(userId)
@@ -306,99 +325,77 @@
                     .get();
 
                 if (doc.exists) {
-                    const cloudData = doc.data();
-                    currentCounts = JSON.parse(cloudData.counts);
-                    console.log('Loaded from Firebase cloud');
+                    currentCounts = JSON.parse(doc.data().counts);
+                    console.log("Loaded from cloud");
                 } else {
-                    console.log('No cloud data - using local');
+                    console.log("Using local");
                 }
-            } catch (error) {
-                console.error('Cloud load failed:', error);
+            } catch (err) {
+                console.error("Firestore load error:", err);
             }
 
+            // Force render even if cloud failed
+            if (!currentCounts || !Array.isArray(currentCounts)) {
+                currentCounts = categories.map(cat => cat.items.map(() => 0));
+            }
+
+            document.getElementById('loading')?.remove();
             render();
             updateDaySummary();
             updateOverallSummary();
             listDates();
         }
 
-        async function saveDayData() {
-            if (!storage.data[currentCourse]) storage.data[currentCourse] = { dates: {} };
-            storage.data[currentCourse].dates[currentDate] = currentCounts;
-            localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
-
-            try {
-                await db.collection('tallies').doc(userId)
-                    .collection('courses').doc(currentCourse)
-                    .collection('dates').doc(currentDate)
-                    .set({
-                        counts: JSON.stringify(currentCounts),
-                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-                        lastUpdated: new Date().toISOString()
-                    });
-                console.log('Day saved to Firebase cloud');
-            } catch (error) {
-                console.error('Cloud save failed:', error);
-            }
-
-            alert('Saved!');
-            updateOverallSummary();
-            listDates();
-        }
-
-        function resetDay() {
-            if (confirm('Reset this day?')) {
-                currentCounts = categories.map(cat => cat.items.map(() => 0));
-                saveDayData();
-                render();
-            }
-        }
-
-        function deleteDay(date) {
-            if (confirm(`Delete ${date} in ${currentCourse}?`)) {
-                delete storage.data[currentCourse].dates[date];
-                localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
-                loadDayData();
-            }
-        }
-
         function render() {
+            console.log("render started");
+            const container = document.getElementById('categories');
+            if (!container) {
+                console.error("categories container not found");
+                return;
+            }
+
             const fragment = document.createDocumentFragment();
+
             categories.forEach((cat, ci) => {
                 const div = document.createElement('div');
                 div.className = 'category';
                 div.innerHTML = `<h2>${cat.name}</h2>`;
+
                 cat.items.forEach((it, ii) => {
                     const item = document.createElement('div');
                     item.className = 'item';
-                    item.dataset.name = it.name.toLowerCase();
-                    item.dataset.code = (it.code || '').toLowerCase();
+                    const count = currentCounts[ci]?.[ii] ?? 0;
                     item.innerHTML = `
                         <span class="item-name">
                             ${it.name}${it.code ? ` <span class="item-code">(ADA: ${it.code})</span>` : ''}
                         </span>
                         <div class="controls">
                             <input type="number" min="0" class="count-input" 
-                                   value="${currentCounts[ci][ii] || 0}" 
+                                   value="${count}" 
                                    onchange="currentCounts[${ci}][${ii}] = Math.max(0, parseInt(this.value) || 0); updateDaySummary();">
                         </div>
                     `;
                     div.appendChild(item);
                 });
+
                 fragment.appendChild(div);
             });
-            document.getElementById('categories').innerHTML = '';
-            document.getElementById('categories').appendChild(fragment);
+
+            container.innerHTML = '';
+            container.appendChild(fragment);
+            console.log("render completed - added", categories.length, "categories");
         }
 
         function updateDaySummary() {
             let html = `<h2>Summary for ${currentDate} (${currentCourse})</h2>`;
             let tot = 0;
-            currentCounts.forEach((cc, ci) => {
-                const ct = cc.reduce((a,b)=>a+b,0);
-                tot += ct;
-                html += `<p><strong>${categories[ci].name}: ${ct}</strong></p>`;
-            });
+            if (currentCounts) {
+                currentCounts.forEach((cc, ci) => {
+                    const ct = cc.reduce((a,b)=>a+b,0);
+                    tot += ct;
+                    html += `<p><strong>${categories[ci].name}: ${ct}</strong></p>`;
+                });
+            }
             html += `<h3 style="color:#007bff">Day Total: ${tot}</h3>`;
             document.getElementById('summary').innerHTML = html;
         }
@@ -541,9 +538,6 @@
             };
             reader.readAsText(file);
         });
-
-        // Start
-        init();
     </script>
 </body>
 </html>
