@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Semester Dental Procedures Tally</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 900px; margin: 20px auto; padding: 15px; background: #f8f9fa; }
+        h1, h2 { text-align: center; color: #333; }
+        #auth-section { text-align: center; margin: 10px 0 20px; }
+        #googleSignInBtn { background: #4285F4; color: white; padding: 10px 24px; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+        #signOutBtn { display: none; background: #db4437; color: white; padding: 10px 24px; border: none; border-radius: 4px; font-size: 16px; cursor: pointer; margin-left: 10px; }
+        #userDisplay { margin-left: 20px; font-weight: bold; color: #333; }
+        #course-selector { text-align: center; margin-bottom: 20px; }
+        #course-select { padding: 8px; font-size: 1em; }
+        #new-course { display: flex; justify-content: center; gap: 10px; margin-top: 10px; }
+        #new-course-input { padding: 8px; width: 200px; }
+        #add-course-btn { background: #28a745; color: white; }
+        #delete-course-btn { background: #dc3545; color: white; }
+        #date-selector { text-align: center; margin-bottom: 20px; }
+        #search { width: 100%; padding: 10px; margin-bottom: 20px; font-size: 1.1em; border: 1px solid #ccc; border-radius: 4px; }
+        .category { margin: 25px 0; padding: 15px; border: 1px solid #ccc; border-radius: 8px; background: white; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .item { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #eee; }
+        .item:last-child { border-bottom: none; }
+        .item-name { flex: 1; font-weight: 500; }
+        .item-code { color: #666; margin-left: 10px; font-size: 0.9em; }
+        .controls { display: flex; align-items: center; gap: 10px; }
+        .count-input { width: 60px; text-align: center; font-size: 1.2em; border: 1px solid #ccc; border-radius: 4px; padding: 5px; }
+        button { padding: 8px 16px; cursor: pointer; border: none; border-radius: 4px; font-size: 1em; }
+        .save-day { background: #17a2b8; color: white; margin: 20px auto; display: block; }
+        .reset-day { background: #ffc107; color: #333; margin: 20px auto; display: block; }
+        #summary { margin: 30px 0; padding: 20px; background: #e9f7ff; border: 1px solid #b3d4fc; border-radius: 8px; }
+        #overall-summary { margin: 30px 0; padding: 20px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px; }
+        #export { background: #007bff; color: white; margin: 20px auto; display: block; padding: 10px 25px; font-size: 1.1em; }
+        .hidden { display: none; }
+        #verify-section { margin: 20px 0; padding: 15px; background: #fff; border: 1px solid #ccc; border-radius: 8px; }
+        #verify-text { width: 100%; height: 200px; font-family: monospace; }
+        #verification-results { margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+        th { background: #f2f2f2; }
+        .match { color: green; font-weight: bold; }
+        .mismatch { color: red; font-weight: bold; }
+        #dates-list { margin: 20px 0; display: flex; flex-wrap: wrap; gap: 10px; }
+        .date-wrapper { position: relative; display: inline-block; }
+        .date-btn { background: #6c757d; color: white; padding: 8px 30px 8px 12px; }
+        .delete-date { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); background: #dc3545; color: white; border: none; padding: 2px 6px; font-size: 0.8em; cursor: pointer; border-radius: 3px; }
+        #import-section { margin: 30px 0; padding: 20px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; text-align: center; }
+        #import-file { margin: 10px auto; display: block; }
+        #import-status { margin-top: 10px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Semester Dental Procedures Tally</h1>
+    <p style="text-align:center; color:#555;">Multi-course tracking with per-date entry, delete days/courses, verification + CSV import/export + Firebase cloud sync.</p>
+
+    <!-- Google Sign-In UI -->
+    <div id="auth-section">
+        <button id="googleSignInBtn">Sign in with Google</button>
+        <button id="signOutBtn" style="display:none;">Sign out</button>
+        <span id="userDisplay"></span>
+    </div>
+
+    <div id="course-selector">
+        <label for="course-select">Course: </label>
+        <select id="course-select" onchange="loadCourseData()"></select>
+        <button id="delete-course-btn" class="hidden" onclick="deleteCurrentCourse()">Delete This Course</button>
+    </div>
+
+    <div id="new-course">
+        <input type="text" id="new-course-input" placeholder="Add new course e.g. DENT7215">
+        <button id="add-course-btn" onclick="addNewCourse()">Add Course</button>
+    </div>
+
+    <div id="date-selector">
+        <label for="clinicDate">Clinic Date: </label>
+        <input type="date" id="clinicDate" onchange="loadDayData()">
+    </div>
+
+    <input type="text" id="search" placeholder="Search procedure or ADA code..." oninput="filterItems()">
+
+    <div id="categories"></div>
+
+    <button class="save-day" onclick="saveDayData()">Save This Day</button>
+    <button class="reset-day" onclick="resetDay()">Reset This Day</button>
+
+    <div id="summary"></div>
+
+    <h2>Overall Summary – <span id="current-course-name"></span></h2>
+    <div id="overall-summary"></div>
+
+    <h2>Dates with Data</h2>
+    <div id="dates-list"></div>
+
+    <div id="import-section">
+        <h2>Import from CSV Backup</h2>
+        <p>Upload your exported CSV to restore or transfer tallies.</p>
+        <input type="file" id="import-file" accept=".csv">
+        <div id="import-status"></div>
+    </div>
+
+    <div id="verify-section">
+        <h2>Verify Against Clinic Report</h2>
+        <textarea id="verify-text" placeholder="Paste your invoiced treatments summary here..."></textarea>
+        <button onclick="parseAndCompare()" style="margin-top:10px; background:#ffc107; color:#333; display:block;">Compare</button>
+        <div id="verification-results"></div>
+    </div>
+
+    <button id="export" onclick="exportToCSV()">Export All Courses to CSV</button>
+
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+
+    <script>
+        // Firebase config
+        const firebaseConfig = {
+            apiKey: "AIzaSyDP6JXgZXX7Y4E6qg01HP2c0eOifgzxcqg",
+            authDomain: "uq-dent-clinic-tally.firebaseapp.com",
+            projectId: "uq-dent-clinic-tally",
+            storageBucket: "uq-dent-clinic-tally.appspot.com",
+            messagingSenderId: "699636553984",
+            appId: "1:699636553984:web:755f6131e37ed6d4d47be5",
+            measurementId: "G-6HRYNZLNP7"
+        };
+
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        // User ID (updated on login)
+        let userId = localStorage.getItem('tallyUserId') || 'device_' + Math.random().toString(36).slice(2, 9);
+        localStorage.setItem('tallyUserId', userId);
+
+        console.log("Initial device ID:", userId);
+        console.log("Firebase connected:", db);
+
+        // Auth state listener
+        auth.onAuthStateChanged(user => {
+            if (user) {
+                userId = user.uid;
+                document.getElementById('googleSignInBtn').style.display = 'none';
+                document.getElementById('signOutBtn').style.display = 'inline-block';
+                document.getElementById('userDisplay').textContent = `Signed in as ${user.displayName || user.email}`;
+                console.log("Signed in - User ID:", userId);
+                loadCourseData(); // reload data under real UID
+            } else {
+                document.getElementById('googleSignInBtn').style.display = 'inline-block';
+                document.getElementById('signOutBtn').style.display = 'none';
+                document.getElementById('userDisplay').textContent = 'Not signed in (device mode)';
+                console.log("Signed out - using device ID:", userId);
+                loadCourseData();
+            }
+        });
+
+        // Sign in
+        document.getElementById('googleSignInBtn').onclick = () => {
+            const provider = new firebase.auth.GoogleAuthProvider();
+            auth.signInWithPopup(provider).catch(err => {
+                console.error("Google sign-in error:", err);
+                alert("Sign in failed: " + err.message);
+            });
+        };
+
+        // Sign out
+        document.getElementById('signOutBtn').onclick = () => {
+            auth.signOut().catch(err => console.error("Sign out error:", err));
+        };
+
+        // ────────────────────────────────────────────────
+        // REST OF YOUR APP CODE (categories, storage, functions)
+        // ────────────────────────────────────────────────
+
+        const categories = [
+            { name: "Examinations and Prevention", items: [
+                { name: "1. Comprehensive examination", code: "011" },
+                { name: "2. Periodic examination", code: "012" },
+                { name: "3. Limited examination", code: "013" },
+                { name: "4. Removal of calculus (and prophy)", code: "114" },
+                { name: "5. Oral hygiene instruction", code: "141" },
+                { name: "6. Dietary advice", code: "131" },
+                { name: "7. Fissure sealant", code: "161" },
+                { name: "8. Tobacco counselling", code: "142" },
+                { name: "9. Topical application of remineralisation/desensitising agents", code: "121" },
+                { name: "10. Application of a cariostatic agent - per tooth", code: "122" },
+                { name: "11. Diagnostic model/intraoral scan(s)", code: "071/043" },
+                { name: "12. Photographic records", code: "073" }
+            ]},
+            { name: "Radiology", items: [
+                { name: "1. Bitewing", code: "022" },
+                { name: "2. Periapical", code: "022" },
+                { name: "3. OPG", code: "037" },
+                { name: "4. CBCT", code: "026-028" }
+            ]},
+            { name: "Local Anaesthesia", items: [
+                { name: "1. Maxillary infiltrations", code: "" },
+                { name: "2. IAN/LN block", code: "" },
+                { name: "3. Palatal infiltration/block", code: "" },
+                { name: "4. Long buccal block", code: "" },
+                { name: "5. Intraligamentary", code: "" },
+                { name: "6. Intrapulpal", code: "" }
+            ]},
+            { name: "Periodontics", items: [
+                { name: "1. Clinical periodontal analysis and recording", code: "221" },
+                { name: "2. Periodontal debridement - per appointment", code: "222" },
+                { name: "3. Treatment of acute periodontal infection – per appointment", code: "232" },
+                { name: "4. Non-surgical treatment of peri-implant disease – per implant", code: "238" }
+            ]},
+            { name: "Oral Surgery", items: [
+                { name: "1. Anterior: Removal of a tooth or part(s) thereof", code: "311" },
+                { name: "2. Posterior: Removal of a tooth or part(s) thereof", code: "311" },
+                { name: "3. Sectional removal of a tooth or part(s) thereof", code: "314" },
+                { name: "4. Surgical removal of a tooth or tooth fragment", code: "322/323" }
+            ]},
+            { name: "Endodontics", items: [
+                { name: "1. Direct pulp capping", code: "411" },
+                { name: "2. Pulpotomy", code: "414" },
+                { name: "3. Anteriors & premolars: Extirpation of pulp or debridement of root canal(s)", code: "415/416" },
+                { name: "4. Molars: Extirpation of pulp or debridement of root canal(s)", code: "415/416" },
+                { name: "5. Anteriors & premolars: Complete chemo-mechanical preparation of root canal", code: "417/418" },
+                { name: "6. Molars: Complete chemo-mechanical preparation of root canal", code: "417/418" },
+                { name: "7. Anteriors & premolars: Root canal obturation", code: "455/458" },
+                { name: "8. Molars: Root canal obturation", code: "455/458" }
+            ]},
+            { name: "Restorative", items: [
+                { name: "1. Anterior restorations", code: "521-525" },
+                { name: "2. Posterior restorations", code: "531-535" },
+                { name: "3. Provisional/interim restoration", code: "572" },
+                { name: "4. Cusp capping - per cusp", code: "577" }
+            ]},
+            { name: "Prosthodontics", items: [
+                { name: "1. Full crown", code: "613" },
+                { name: "2. Post and core for crown", code: "645" },
+                { name: "3. Bridge", code: "642" },
+                { name: "4. Fitting of implant abutment", code: "661" },
+                { name: "5. Complete maxillary denture", code: "711" },
+                { name: "6. Complete mandibular denture", code: "712" },
+                { name: "7. Partial maxillary denture (acrylic)", code: "721" },
+                { name: "8. Partial maxillary denture (Chrome-cobalt)", code: "727" },
+                { name: "9. Partial mandibular denture (acrylic)", code: "722" },
+                { name: "10. Partial mandibular denture (Chrome-cobalt)", code: "728" },
+                { name: "11. Bonded retainer", code: "643" }
+            ]},
+            { name: "Paediatrics", items: [
+                { name: "1. Number of paediatric patients", code: "" }
+            ]}
+        ];
+
+        const groupMaps = [
+            { description: "Comprehensive examination", codes: ["011"], appItems: [{cat: 0, item: 0}] },
+            { description: "Periodic examination", codes: ["012"], appItems: [{cat: 0, item: 1}] },
+            { description: "Limited examination", codes: ["013"], appItems: [{cat: 0, item: 2}] },
+            { description: "Removal of calculus (and prophy)", codes: ["114"], appItems: [{cat: 0, item: 3}] },
+            { description: "Oral hygiene instruction", codes: ["141"], appItems: [{cat: 0, item: 4}] },
+            { description: "Dietary advice", codes: ["131"], appItems: [{cat: 0, item: 5}] },
+            { description: "Fissure sealant", codes: ["161"], appItems: [{cat: 0, item: 6}] },
+            { description: "Tobacco counselling", codes: ["142"], appItems: [{cat: 0, item: 7}] },
+            { description: "Topical application of remineralisation/desensitising agents", codes: ["121"], appItems: [{cat: 0, item: 8}] },
+            { description: "Application of a cariostatic agent - per tooth", codes: ["122"], appItems: [{cat: 0, item: 9}] },
+            { description: "Diagnostic model/intraoral scan(s)", codes: ["071", "043"], appItems: [{cat: 0, item: 10}] },
+            { description: "Photographic records", codes: ["073"], appItems: [{cat: 0, item: 11}] },
+            { description: "Bitewing + Periapical", codes: ["022"], appItems: [{cat: 1, item: 0}, {cat: 1, item: 1}] },
+            { description: "OPG", codes: ["037"], appItems: [{cat: 1, item: 2}] },
+            { description: "CBCT", codes: ["026","027","028"], appItems: [{cat: 1, item: 3}] },
+            { description: "Clinical periodontal analysis and recording", codes: ["221"], appItems: [{cat: 3, item: 0}] },
+            { description: "Periodontal debridement - per appointment", codes: ["222"], appItems: [{cat: 3, item: 1}] },
+            { description: "Treatment of acute periodontal infection – per appointment", codes: ["232"], appItems: [{cat: 3, item: 2}] },
+            { description: "Non-surgical treatment of peri-implant disease – per implant", codes: ["238"], appItems: [{cat: 3, item: 3}] },
+            { description: "Anterior + Posterior: Removal of a tooth or part(s) thereof", codes: ["311"], appItems: [{cat: 4, item: 0}, {cat: 4, item: 1}] },
+            { description: "Sectional removal of a tooth or part(s) thereof", codes: ["314"], appItems: [{cat: 4, item: 2}] },
+            { description: "Surgical removal of a tooth or tooth fragment", codes: ["322","323"], appItems: [{cat: 4, item: 3}] },
+            { description: "Direct pulp capping", codes: ["411"], appItems: [{cat: 5, item: 0}] },
+            { description: "Pulpotomy", codes: ["414"], appItems: [{cat: 5, item: 1}] },
+            { description: "Extirpation (Anteriors/premolars + Molars)", codes: ["415","416"], appItems: [{cat: 5, item: 2}, {cat: 5, item: 3}] },
+            { description: "Chemo-mechanical prep (Anteriors/premolars + Molars)", codes: ["417","418"], appItems: [{cat: 5, item: 4}, {cat: 5, item: 5}] },
+            { description: "Root canal obturation (Anteriors/premolars + Molars)", codes: ["455","458"], appItems: [{cat: 5, item: 6}, {cat: 5, item: 7}] },
+            { description: "Anterior restorations", codes: ["521","522","523","524","525"], appItems: [{cat: 6, item: 0}] },
+            { description: "Posterior restorations", codes: ["531","532","533","534","535"], appItems: [{cat: 6, item: 1}] },
+            { description: "Provisional/interim restoration", codes: ["572"], appItems: [{cat: 6, item: 2}] },
+            { description: "Cusp capping - per cusp", codes: ["577"], appItems: [{cat: 6, item: 3}] },
+            { description: "Full crown", codes: ["613"], appItems: [{cat: 7, item: 0}] },
+            { description: "Post and core for crown", codes: ["645"], appItems: [{cat: 7, item: 1}] },
+            { description: "Bridge", codes: ["642"], appItems: [{cat: 7, item: 2}] },
+            { description: "Fitting of implant abutment", codes: ["661"], appItems: [{cat: 7, item: 3}] },
+            { description: "Complete maxillary denture", codes: ["711"], appItems: [{cat: 7, item: 4}] },
+            { description: "Complete mandibular denture", codes: ["712"], appItems: [{cat: 7, item: 5}] },
+            { description: "Partial maxillary denture (acrylic)", codes: ["721"], appItems: [{cat: 7, item: 6}] },
+            { description: "Partial maxillary denture (Chrome-cobalt)", codes: ["727"], appItems: [{cat: 7, item: 7}] },
+            { description: "Partial mandibular denture (acrylic)", codes: ["722"], appItems: [{cat: 7, item: 8}] },
+            { description: "Partial mandibular denture (Chrome-cobalt)", codes: ["728"], appItems: [{cat: 7, item: 9}] },
+            { description: "Bonded retainer", codes: ["643"], appItems: [{cat: 7, item: 10}] }
+        ];
+
+        let storage = JSON.parse(localStorage.getItem('dental_multi_course_tally_v3')) || {
+            courses: ['DENT7214', 'DENT7213'],
+            data: {}
+        };
+
+        let currentCourse = storage.courses[0] || 'DENT7214';
+        let currentDate = new Date().toISOString().split('T')[0];
+        let currentCounts;
+
+        function init() {
+            storage.courses.forEach(c => {
+                if (!storage.data[c]) storage.data[c] = { dates: {} };
+            });
+            populateCourses();
+            loadCourseData();
+        }
+
+        function populateCourses() {
+            const sel = document.getElementById('course-select');
+            sel.innerHTML = '';
+            storage.courses.forEach(c => {
+                const opt = document.createElement('option');
+                opt.value = c;
+                opt.text = c;
+                sel.appendChild(opt);
+            });
+            sel.value = currentCourse;
+            document.getElementById('current-course-name').textContent = currentCourse;
+            document.getElementById('delete-course-btn').classList.toggle('hidden', storage.courses.length <= 1);
+        }
+
+        function addNewCourse() {
+            const name = document.getElementById('new-course-input').value.trim();
+            if (!name || storage.courses.includes(name)) return alert('Invalid or duplicate.');
+            storage.courses.push(name);
+            storage.data[name] = { dates: {} };
+            currentCourse = name;
+            localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
+            populateCourses();
+            document.getElementById('new-course-input').value = '';
+        }
+
+        function deleteCurrentCourse() {
+            if (storage.courses.length <= 1) return alert('Cannot delete your only course.');
+            if (!confirm(`Delete "${currentCourse}" and ALL data?`)) return;
+            if (!confirm('Confirm again — permanent.')) return;
+            const idx = storage.courses.indexOf(currentCourse);
+            storage.courses.splice(idx, 1);
+            delete storage.data[currentCourse];
+            currentCourse = storage.courses[0];
+            localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
+            populateCourses();
+            loadCourseData();
+        }
+
+        function loadCourseData() {
+            currentCourse = document.getElementById('course-select').value;
+            document.getElementById('current-course-name').textContent = currentCourse;
+            loadDayData();
+        }
+
+        async function loadDayData() {
+            currentDate = document.getElementById('clinicDate').value || new Date().toISOString().split('T')[0];
+
+            const dates = storage.data[currentCourse]?.dates || {};
+            currentCounts = dates[currentDate] || categories.map(cat => cat.items.map(() => 0));
+
+            try {
+                const doc = await db.collection('tallies').doc(userId)
+                    .collection('courses').doc(currentCourse)
+                    .collection('dates').doc(currentDate)
+                    .get();
+
+                if (doc.exists) {
+                    const cloudData = doc.data();
+                    currentCounts = JSON.parse(cloudData.counts);
+                    console.log('Loaded from Firebase cloud');
+                    render();
+                } else {
+                    console.log('No cloud data - using local');
+                }
+            } catch (error) {
+                console.error('Cloud load failed:', error);
+            }
+
+            render();
+            updateDaySummary();
+            updateOverallSummary();
+            listDates();
+        }
+
+        async function saveDayData() {
+            if (!storage.data[currentCourse]) storage.data[currentCourse] = { dates: {} };
+            storage.data[currentCourse].dates[currentDate] = currentCounts;
+            localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
+
+            try {
+                await db.collection('tallies').doc(userId)
+                    .collection('courses').doc(currentCourse)
+                    .collection('dates').doc(currentDate)
+                    .set({
+                        counts: JSON.stringify(currentCounts),
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        lastUpdated: new Date().toISOString()
+                    });
+                console.log('Day saved to Firebase cloud');
+            } catch (error) {
+                console.error('Cloud save failed:', error);
+            }
+
+            alert('Saved!');
+            updateOverallSummary();
+            listDates();
+        }
+
+        function resetDay() {
+            if (confirm('Reset this day?')) {
+                currentCounts = categories.map(cat => cat.items.map(() => 0));
+                saveDayData();
+                render();
+            }
+        }
+
+        function deleteDay(date) {
+            if (confirm(`Delete ${date} in ${currentCourse}?`)) {
+                delete storage.data[currentCourse].dates[date];
+                localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
+                loadDayData();
+            }
+        }
+
+        function render() {
+            const cont = document.getElementById('categories');
+            cont.innerHTML = '';
+            categories.forEach((cat, ci) => {
+                const div = document.createElement('div');
+                div.className = 'category';
+                div.innerHTML = `<h2>${cat.name}</h2>`;
+                cat.items.forEach((it, ii) => {
+                    const item = document.createElement('div');
+                    item.className = 'item';
+                    item.dataset.name = it.name.toLowerCase();
+                    item.dataset.code = (it.code || '').toLowerCase();
+                    item.innerHTML = `
+                        <span class="item-name">
+                            ${it.name}${it.code ? ` <span class="item-code">(ADA: ${it.code})</span>` : ''}
+                        </span>
+                        <div class="controls">
+                            <input type="number" min="0" class="count-input" 
+                                   value="${currentCounts[ci][ii] || 0}" 
+                                   onchange="currentCounts[${ci}][${ii}] = Math.max(0, parseInt(this.value) || 0); updateDaySummary();">
+                        </div>
+                    `;
+                    div.appendChild(item);
+                });
+                cont.appendChild(div);
+            });
+        }
+
+        function updateDaySummary() {
+            let html = `<h2>Summary for ${currentDate} (${currentCourse})</h2>`;
+            let tot = 0;
+            currentCounts.forEach((cc, ci) => {
+                const ct = cc.reduce((a,b)=>a+b,0);
+                tot += ct;
+                html += `<p><strong>${categories[ci].name}: ${ct}</strong></p>`;
+            });
+            html += `<h3 style="color:#007bff">Day Total: ${tot}</h3>`;
+            document.getElementById('summary').innerHTML = html;
+        }
+
+        function updateOverallSummary() {
+            let overall = categories.map(cat => cat.items.map(()=>0));
+            const dates = storage.data[currentCourse]?.dates || {};
+            Object.values(dates).forEach(day => {
+                day.forEach((cc, ci) => cc.forEach((v, ii) => overall[ci][ii] += v));
+            });
+            let html = '';
+            let gtot = 0;
+            overall.forEach((cc, ci) => {
+                const ct = cc.reduce((a,b)=>a+b,0);
+                gtot += ct;
+                html += `<p><strong>${categories[ci].name}: ${ct}</strong></p>`;
+            });
+            html += `<h3 style="color:#28a745">Grand Total: ${gtot}</h3>`;
+            document.getElementById('overall-summary').innerHTML = html;
+        }
+
+        function listDates() {
+            const cont = document.getElementById('dates-list');
+            cont.innerHTML = '';
+            const dates = Object.keys(storage.data[currentCourse]?.dates || {}).sort().reverse();
+            dates.forEach(d => {
+                const w = document.createElement('div');
+                w.className = 'date-wrapper';
+                const b = document.createElement('button');
+                b.className = 'date-btn';
+                b.textContent = d;
+                b.onclick = () => { document.getElementById('clinicDate').value = d; loadDayData(); };
+                const del = document.createElement('button');
+                del.className = 'delete-date';
+                del.textContent = '×';
+                del.onclick = e => { e.stopPropagation(); deleteDay(d); };
+                b.appendChild(del);
+                w.appendChild(b);
+                cont.appendChild(w);
+            });
+        }
+
+        function filterItems() {
+            const q = document.getElementById('search').value.toLowerCase().trim();
+            document.querySelectorAll('.item').forEach(i => {
+                const match = i.dataset.name.includes(q) || i.dataset.code.includes(q);
+                i.classList.toggle('hidden', !match);
+            });
+            document.querySelectorAll('.category').forEach(c => {
+                const vis = c.querySelectorAll('.item:not(.hidden)').length > 0;
+                c.style.display = vis ? 'block' : 'none';
+            });
+        }
+
+        function parseAndCompare() {
+            const txt = document.getElementById('verify-text').value;
+            const lines = txt.split('\n');
+            const off = {};
+
+            lines.forEach(l => {
+                const t = l.trim();
+                if (!t || !/^\d{3}/.test(t)) return;
+
+                const parts = t.split(/\s+/).filter(p => p);
+                if (parts.length < 3) return;
+
+                const code = parts[0];
+                const countStr = parts[parts.length - 1];
+                const cnt = parseInt(countStr, 10);
+
+                if (!isNaN(cnt)) {
+                    off[code] = (off[code] || 0) + cnt;
+                }
+            });
+
+            let overall = categories.map(cat => cat.items.map(()=>0));
+            const dates = storage.data[currentCourse]?.dates || {};
+            Object.values(dates).forEach(day => {
+                day.forEach((cc, ci) => cc.forEach((v, ii) => overall[ci][ii] += v));
+            });
+
+            let html = '<table><tr><th>Item Group</th><th>App Total</th><th>Report Total</th><th>Diff</th></tr>';
+            groupMaps.forEach(g => {
+                let a = 0;
+                g.appItems.forEach(p => a += overall[p.cat][p.item]);
+                let o = 0;
+                g.codes.forEach(c => o += off[c] || 0);
+                const d = a - o;
+                html += `<tr><td>${g.description}</td><td>${a}</td><td>${o}</td><td class="${d===0?'match':'mismatch'}">${d}</td></tr>`;
+            });
+            html += '</table>';
+            document.getElementById('verification-results').innerHTML = html;
+        }
+
+        function exportToCSV() {
+            let csv = 'Course,Date,Category,Item,ADA Code,Count\n';
+            storage.courses.forEach(c => {
+                const cd = storage.data[c]?.dates || {};
+                Object.entries(cd).forEach(([d, day]) => {
+                    day.forEach((cc, ci) => {
+                        cc.forEach((v, ii) => {
+                            if (v > 0) {
+                                const it = categories[ci].items[ii];
+                                csv += `"${c}","${d}","${categories[ci].name.replace(/"/g,'""')}","${it.name.replace(/"/g,'""')}",${it.code || 'N/A'},${v}\n`;
+                            }
+                        });
+                    });
+                });
+            });
+            const blob = new Blob([csv], {type: 'text/csv'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'dental-tallies.csv';
+            a.click();
+        }
+
+        document.getElementById('import-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const status = document.getElementById('import-status');
+            status.textContent = 'Reading...';
+
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const text = event.target.result;
+                const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+                let imported = 0;
+
+                if (lines[0] && lines[0].includes('Course,Date')) lines.shift();
+
+                lines.forEach(line => {
+                    const cols = line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+                    if (cols.length < 6) return;
+                    const [course, date, catName, itemName, ada, countStr] = cols;
+                    const count = parseInt(countStr, 10);
+                    if (isNaN(count)) return;
+
+                    if (!storage.courses.includes(course)) {
+                        storage.courses.push(course);
+                        storage.data[course] = { dates: {} };
+                    }
+
+                    if (!storage.data[course].dates[date]) {
+                        storage.data[course].dates[date] = categories.map(cat => cat.items.map(() => 0));
+                    }
+
+                    categories.forEach((cat, ci) => {
+                        if (cat.name === catName) {
+                            cat.items.forEach((item, ii) => {
+                                if (item.name === itemName) {
+                                    storage.data[course].dates[date][ci][ii] += count;
+                                    imported++;
+                                }
+                            });
+                        }
+                    });
+                });
+
+                localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
+                populateCourses();
+                loadCourseData();
+                status.innerHTML = `<span style="color:green">Imported ${imported} entries.</span>`;
+            };
+            reader.readAsText(file);
+        });
+
+        // Start app
+        init();
+    </script>
+</body>
+</html>
