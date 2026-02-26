@@ -48,6 +48,8 @@
     <h1>Semester Dental Procedures Tally</h1>
     <p style="text-align:center; color:#555;">Multi-course tracking with per-date entry, cloud sync & CSV backup.</p>
 
+    <div id="loading">Loading procedures... Please wait.</div>
+
     <!-- Google Sign-In UI -->
     <div id="auth-section">
         <button id="googleSignInBtn">Sign in with Google</button>
@@ -73,7 +75,6 @@
 
     <input type="text" id="search" placeholder="Search procedure or ADA code..." oninput="filterItems()">
 
-    <div id="loading">Loading procedures... Please wait.</div>
     <div id="categories"></div>
 
     <button class="save-day" onclick="saveDayData()">Save This Day</button>
@@ -118,10 +119,10 @@
     </script>
 
     <script>
-        // Wait for Firebase
+        // Wait for Firebase to be ready
         function waitForFirebase(callback) {
             if (typeof firebase !== 'undefined' && firebase.initializeApp) {
-                console.log("Firebase ready");
+                console.log("Firebase is ready");
                 callback();
             } else {
                 console.log("Waiting for Firebase...");
@@ -145,13 +146,13 @@
                 const db = firebase.firestore();
                 const auth = firebase.auth();
 
-                console.log("Firebase initialized");
+                console.log("Firebase initialized successfully");
 
                 let userId = localStorage.getItem('tallyUserId') || 'device_' + Math.random().toString(36).slice(2, 9);
                 localStorage.setItem('tallyUserId', userId);
 
                 auth.onAuthStateChanged(user => {
-                    console.log("Auth changed:", user ? "signed in" : "signed out");
+                    console.log("Auth state changed:", user ? "signed in" : "signed out");
                     if (user) {
                         userId = user.uid;
                         document.getElementById('googleSignInBtn').style.display = 'none';
@@ -182,6 +183,7 @@
                 init();
             } catch (err) {
                 console.error("Firebase setup failed:", err);
+                alert("Firebase failed to load. Check console (F12) for details.");
             }
         });
 
@@ -270,7 +272,7 @@
         let currentCounts = null;
 
         function init() {
-            console.log("init started");
+            console.log("init() started");
             try {
                 storage.courses.forEach(c => {
                     if (!storage.data[c]) storage.data[c] = { dates: {} };
@@ -278,15 +280,15 @@
                 populateCourses();
                 loadCourseData();
             } catch (err) {
-                console.error("init error:", err);
+                console.error("init() failed:", err);
             }
         }
 
         function populateCourses() {
-            console.log("populateCourses started");
+            console.log("populateCourses() started");
             const sel = document.getElementById('course-select');
             if (!sel) {
-                console.error("course-select not found");
+                console.error("course-select element not found");
                 return;
             }
             sel.innerHTML = '';
@@ -303,14 +305,14 @@
         }
 
         function loadCourseData() {
-            console.log("loadCourseData started");
+            console.log("loadCourseData() started");
             currentCourse = document.getElementById('course-select')?.value || currentCourse;
             document.getElementById('current-course-name').textContent = currentCourse;
             loadDayData();
         }
 
         async function loadDayData() {
-            console.log("loadDayData started");
+            console.log("loadDayData() started for date:", currentDate);
             currentDate = document.getElementById('clinicDate')?.value || new Date().toISOString().split('T')[0];
 
             const dates = storage.data[currentCourse]?.dates || {};
@@ -325,17 +327,19 @@
                     .get();
 
                 if (doc.exists) {
-                    currentCounts = JSON.parse(doc.data().counts);
-                    console.log("Loaded from cloud");
+                    const cloudData = doc.data();
+                    currentCounts = JSON.parse(cloudData.counts);
+                    console.log('Loaded from Firebase cloud');
                 } else {
-                    console.log("Using local");
+                    console.log('No cloud data - using local');
                 }
-            } catch (err) {
-                console.error("Firestore load error:", err);
+            } catch (error) {
+                console.error('Cloud load failed:', error);
             }
 
-            // Force render even if cloud failed
+            // Safety fallback
             if (!currentCounts || !Array.isArray(currentCounts)) {
+                console.warn("currentCounts invalid - resetting to zero");
                 currentCounts = categories.map(cat => cat.items.map(() => 0));
             }
 
@@ -346,8 +350,50 @@
             listDates();
         }
 
+        async function saveDayData() {
+            console.log("saveDayData() called");
+            try {
+                if (!storage.data[currentCourse]) storage.data[currentCourse] = { dates: {} };
+                storage.data[currentCourse].dates[currentDate] = currentCounts;
+                localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
+
+                await db.collection('tallies').doc(userId)
+                    .collection('courses').doc(currentCourse)
+                    .collection('dates').doc(currentDate)
+                    .set({
+                        counts: JSON.stringify(currentCounts),
+                        timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+                        lastUpdated: new Date().toISOString()
+                    });
+                console.log('Day saved to Firebase cloud');
+                alert('Saved successfully!');
+            } catch (error) {
+                console.error('Save failed:', error);
+                alert('Save failed: ' + error.message + '\nCheck console for details.');
+            }
+
+            updateOverallSummary();
+            listDates();
+        }
+
+        function resetDay() {
+            if (confirm('Reset this day?')) {
+                currentCounts = categories.map(cat => cat.items.map(() => 0));
+                saveDayData();
+                render();
+            }
+        }
+
+        function deleteDay(date) {
+            if (confirm(`Delete ${date} in ${currentCourse}?`)) {
+                delete storage.data[currentCourse].dates[date];
+                localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
+                loadDayData();
+            }
+        }
+
         function render() {
-            console.log("render started");
+            console.log("render() started");
             const container = document.getElementById('categories');
             if (!container) {
                 console.error("categories container not found");
@@ -364,7 +410,11 @@
                 cat.items.forEach((it, ii) => {
                     const item = document.createElement('div');
                     item.className = 'item';
+                    item.dataset.name = it.name.toLowerCase();
+                    item.dataset.code = (it.code || '').toLowerCase();
+
                     const count = currentCounts[ci]?.[ii] ?? 0;
+
                     item.innerHTML = `
                         <span class="item-name">
                             ${it.name}${it.code ? ` <span class="item-code">(ADA: ${it.code})</span>` : ''}
@@ -383,7 +433,7 @@
 
             container.innerHTML = '';
             container.appendChild(fragment);
-            console.log("render completed - added", categories.length, "categories");
+            console.log("render() completed - added", categories.length, "categories");
         }
 
         function updateDaySummary() {
