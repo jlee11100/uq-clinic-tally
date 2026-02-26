@@ -33,14 +33,6 @@
         #overall-summary { margin: 30px 0; padding: 20px; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 8px; }
         #export { background: #007bff; color: white; margin: 20px auto; display: block; padding: 10px 25px; font-size: 1.1em; }
         .hidden { display: none; }
-        #verify-section { margin: 20px 0; padding: 15px; background: #fff; border: 1px solid #ccc; border-radius: 8px; }
-        #verify-text { width: 100%; height: 200px; font-family: monospace; }
-        #verification-results { margin-top: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { padding: 8px; border: 1px solid #ddd; text-align: left; }
-        th { background: #f2f2f2; }
-        .match { color: green; font-weight: bold; }
-        .mismatch { color: red; font-weight: bold; }
         #dates-list { margin: 20px 0; display: flex; flex-wrap: wrap; gap: 10px; }
         .date-wrapper { position: relative; display: inline-block; }
         .date-btn { background: #6c757d; color: white; padding: 8px 30px 8px 12px; }
@@ -48,11 +40,12 @@
         #import-section { margin: 30px 0; padding: 20px; background: #fff3cd; border: 1px solid #ffeeba; border-radius: 8px; text-align: center; }
         #import-file { margin: 10px auto; display: block; }
         #import-status { margin-top: 10px; font-weight: bold; }
+        ul { margin: 5px 0 15px 30px; padding: 0; list-style-type: disc; }
     </style>
 </head>
 <body>
     <h1>Semester Dental Procedures Tally</h1>
-    <p style="text-align:center; color:#555;">Multi-course tracking with per-date entry, delete days/courses, verification + CSV import/export + Firebase cloud sync.</p>
+    <p style="text-align:center; color:#555;">Multi-course tracking with per-date entry, cloud sync & CSV backup.</p>
 
     <!-- Google Sign-In UI -->
     <div id="auth-section">
@@ -99,19 +92,12 @@
         <div id="import-status"></div>
     </div>
 
-    <div id="verify-section">
-        <h2>Verify Against Clinic Report</h2>
-        <textarea id="verify-text" placeholder="Paste your invoiced treatments summary here..."></textarea>
-        <button onclick="parseAndCompare()" style="margin-top:10px; background:#ffc107; color:#333; display:block;">Compare</button>
-        <div id="verification-results"></div>
-    </div>
-
     <button id="export" onclick="exportToCSV()">Export All Courses to CSV</button>
 
     <!-- Firebase SDKs -->
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 
     <script>
         // Firebase config
@@ -144,7 +130,7 @@
                 document.getElementById('signOutBtn').style.display = 'inline-block';
                 document.getElementById('userDisplay').textContent = `Signed in as ${user.displayName || user.email}`;
                 console.log("Signed in - User ID:", userId);
-                loadCourseData(); // reload data under real UID
+                loadCourseData();
             } else {
                 document.getElementById('googleSignInBtn').style.display = 'inline-block';
                 document.getElementById('signOutBtn').style.display = 'none';
@@ -168,10 +154,7 @@
             auth.signOut().catch(err => console.error("Sign out error:", err));
         };
 
-        // ────────────────────────────────────────────────
-        // REST OF YOUR APP CODE (categories, storage, functions)
-        // ────────────────────────────────────────────────
-
+        // Categories
         const categories = [
             { name: "Examinations and Prevention", items: [
                 { name: "1. Comprehensive examination", code: "011" },
@@ -247,50 +230,7 @@
             ]}
         ];
 
-        const groupMaps = [
-            { description: "Comprehensive examination", codes: ["011"], appItems: [{cat: 0, item: 0}] },
-            { description: "Periodic examination", codes: ["012"], appItems: [{cat: 0, item: 1}] },
-            { description: "Limited examination", codes: ["013"], appItems: [{cat: 0, item: 2}] },
-            { description: "Removal of calculus (and prophy)", codes: ["114"], appItems: [{cat: 0, item: 3}] },
-            { description: "Oral hygiene instruction", codes: ["141"], appItems: [{cat: 0, item: 4}] },
-            { description: "Dietary advice", codes: ["131"], appItems: [{cat: 0, item: 5}] },
-            { description: "Fissure sealant", codes: ["161"], appItems: [{cat: 0, item: 6}] },
-            { description: "Tobacco counselling", codes: ["142"], appItems: [{cat: 0, item: 7}] },
-            { description: "Topical application of remineralisation/desensitising agents", codes: ["121"], appItems: [{cat: 0, item: 8}] },
-            { description: "Application of a cariostatic agent - per tooth", codes: ["122"], appItems: [{cat: 0, item: 9}] },
-            { description: "Diagnostic model/intraoral scan(s)", codes: ["071", "043"], appItems: [{cat: 0, item: 10}] },
-            { description: "Photographic records", codes: ["073"], appItems: [{cat: 0, item: 11}] },
-            { description: "Bitewing + Periapical", codes: ["022"], appItems: [{cat: 1, item: 0}, {cat: 1, item: 1}] },
-            { description: "OPG", codes: ["037"], appItems: [{cat: 1, item: 2}] },
-            { description: "CBCT", codes: ["026","027","028"], appItems: [{cat: 1, item: 3}] },
-            { description: "Clinical periodontal analysis and recording", codes: ["221"], appItems: [{cat: 3, item: 0}] },
-            { description: "Periodontal debridement - per appointment", codes: ["222"], appItems: [{cat: 3, item: 1}] },
-            { description: "Treatment of acute periodontal infection – per appointment", codes: ["232"], appItems: [{cat: 3, item: 2}] },
-            { description: "Non-surgical treatment of peri-implant disease – per implant", codes: ["238"], appItems: [{cat: 3, item: 3}] },
-            { description: "Anterior + Posterior: Removal of a tooth or part(s) thereof", codes: ["311"], appItems: [{cat: 4, item: 0}, {cat: 4, item: 1}] },
-            { description: "Sectional removal of a tooth or part(s) thereof", codes: ["314"], appItems: [{cat: 4, item: 2}] },
-            { description: "Surgical removal of a tooth or tooth fragment", codes: ["322","323"], appItems: [{cat: 4, item: 3}] },
-            { description: "Direct pulp capping", codes: ["411"], appItems: [{cat: 5, item: 0}] },
-            { description: "Pulpotomy", codes: ["414"], appItems: [{cat: 5, item: 1}] },
-            { description: "Extirpation (Anteriors/premolars + Molars)", codes: ["415","416"], appItems: [{cat: 5, item: 2}, {cat: 5, item: 3}] },
-            { description: "Chemo-mechanical prep (Anteriors/premolars + Molars)", codes: ["417","418"], appItems: [{cat: 5, item: 4}, {cat: 5, item: 5}] },
-            { description: "Root canal obturation (Anteriors/premolars + Molars)", codes: ["455","458"], appItems: [{cat: 5, item: 6}, {cat: 5, item: 7}] },
-            { description: "Anterior restorations", codes: ["521","522","523","524","525"], appItems: [{cat: 6, item: 0}] },
-            { description: "Posterior restorations", codes: ["531","532","533","534","535"], appItems: [{cat: 6, item: 1}] },
-            { description: "Provisional/interim restoration", codes: ["572"], appItems: [{cat: 6, item: 2}] },
-            { description: "Cusp capping - per cusp", codes: ["577"], appItems: [{cat: 6, item: 3}] },
-            { description: "Full crown", codes: ["613"], appItems: [{cat: 7, item: 0}] },
-            { description: "Post and core for crown", codes: ["645"], appItems: [{cat: 7, item: 1}] },
-            { description: "Bridge", codes: ["642"], appItems: [{cat: 7, item: 2}] },
-            { description: "Fitting of implant abutment", codes: ["661"], appItems: [{cat: 7, item: 3}] },
-            { description: "Complete maxillary denture", codes: ["711"], appItems: [{cat: 7, item: 4}] },
-            { description: "Complete mandibular denture", codes: ["712"], appItems: [{cat: 7, item: 5}] },
-            { description: "Partial maxillary denture (acrylic)", codes: ["721"], appItems: [{cat: 7, item: 6}] },
-            { description: "Partial maxillary denture (Chrome-cobalt)", codes: ["727"], appItems: [{cat: 7, item: 7}] },
-            { description: "Partial mandibular denture (acrylic)", codes: ["722"], appItems: [{cat: 7, item: 8}] },
-            { description: "Partial mandibular denture (Chrome-cobalt)", codes: ["728"], appItems: [{cat: 7, item: 9}] },
-            { description: "Bonded retainer", codes: ["643"], appItems: [{cat: 7, item: 10}] }
-        ];
+        const groupMaps = []; // removed since verification section is gone
 
         let storage = JSON.parse(localStorage.getItem('dental_multi_course_tally_v3')) || {
             courses: ['DENT7214', 'DENT7213'],
@@ -369,7 +309,6 @@
                     const cloudData = doc.data();
                     currentCounts = JSON.parse(cloudData.counts);
                     console.log('Loaded from Firebase cloud');
-                    render();
                 } else {
                     console.log('No cloud data - using local');
                 }
@@ -424,8 +363,7 @@
         }
 
         function render() {
-            const cont = document.getElementById('categories');
-            cont.innerHTML = '';
+            const fragment = document.createDocumentFragment();
             categories.forEach((cat, ci) => {
                 const div = document.createElement('div');
                 div.className = 'category';
@@ -447,8 +385,10 @@
                     `;
                     div.appendChild(item);
                 });
-                cont.appendChild(div);
+                fragment.appendChild(div);
             });
+            document.getElementById('categories').innerHTML = '';
+            document.getElementById('categories').appendChild(fragment);
         }
 
         function updateDaySummary() {
@@ -464,18 +404,34 @@
         }
 
         function updateOverallSummary() {
-            let overall = categories.map(cat => cat.items.map(()=>0));
+            let overall = categories.map(cat => cat.items.map(() => 0));
             const dates = storage.data[currentCourse]?.dates || {};
+
             Object.values(dates).forEach(day => {
                 day.forEach((cc, ci) => cc.forEach((v, ii) => overall[ci][ii] += v));
             });
-            let html = '';
+
+            let html = '<h2>Overall Summary – ' + currentCourse + '</h2>';
             let gtot = 0;
-            overall.forEach((cc, ci) => {
-                const ct = cc.reduce((a,b)=>a+b,0);
-                gtot += ct;
-                html += `<p><strong>${categories[ci].name}: ${ct}</strong></p>`;
+
+            overall.forEach((catCounts, ci) => {
+                const catTotal = catCounts.reduce((a, b) => a + b, 0);
+                gtot += catTotal;
+
+                html += `<p><strong>${categories[ci].name}: ${catTotal}</strong></p>`;
+
+                if (catTotal > 0) {
+                    html += '<ul>';
+                    catCounts.forEach((count, ii) => {
+                        if (count > 0) {
+                            const item = categories[ci].items[ii];
+                            html += `<li>${item.name}${item.code ? ` (ADA: ${item.code})` : ''}: ${count}</li>`;
+                        }
+                    });
+                    html += '</ul>';
+                }
             });
+
             html += `<h3 style="color:#28a745">Grand Total: ${gtot}</h3>`;
             document.getElementById('overall-summary').innerHTML = html;
         }
@@ -511,46 +467,6 @@
                 const vis = c.querySelectorAll('.item:not(.hidden)').length > 0;
                 c.style.display = vis ? 'block' : 'none';
             });
-        }
-
-        function parseAndCompare() {
-            const txt = document.getElementById('verify-text').value;
-            const lines = txt.split('\n');
-            const off = {};
-
-            lines.forEach(l => {
-                const t = l.trim();
-                if (!t || !/^\d{3}/.test(t)) return;
-
-                const parts = t.split(/\s+/).filter(p => p);
-                if (parts.length < 3) return;
-
-                const code = parts[0];
-                const countStr = parts[parts.length - 1];
-                const cnt = parseInt(countStr, 10);
-
-                if (!isNaN(cnt)) {
-                    off[code] = (off[code] || 0) + cnt;
-                }
-            });
-
-            let overall = categories.map(cat => cat.items.map(()=>0));
-            const dates = storage.data[currentCourse]?.dates || {};
-            Object.values(dates).forEach(day => {
-                day.forEach((cc, ci) => cc.forEach((v, ii) => overall[ci][ii] += v));
-            });
-
-            let html = '<table><tr><th>Item Group</th><th>App Total</th><th>Report Total</th><th>Diff</th></tr>';
-            groupMaps.forEach(g => {
-                let a = 0;
-                g.appItems.forEach(p => a += overall[p.cat][p.item]);
-                let o = 0;
-                g.codes.forEach(c => o += off[c] || 0);
-                const d = a - o;
-                html += `<tr><td>${g.description}</td><td>${a}</td><td>${o}</td><td class="${d===0?'match':'mismatch'}">${d}</td></tr>`;
-            });
-            html += '</table>';
-            document.getElementById('verification-results').innerHTML = html;
         }
 
         function exportToCSV() {
@@ -626,7 +542,7 @@
             reader.readAsText(file);
         });
 
-        // Start app
+        // Start
         init();
     </script>
 </body>
