@@ -119,10 +119,12 @@
     </script>
 
     <script>
-        // Wait for Firebase to be ready
+        let db;
+        let auth;
+
         function waitForFirebase(callback) {
             if (typeof firebase !== 'undefined' && firebase.initializeApp) {
-                console.log("Firebase is ready");
+                console.log("Firebase ready");
                 callback();
             } else {
                 console.log("Waiting for Firebase...");
@@ -143,10 +145,10 @@
                 };
 
                 firebase.initializeApp(firebaseConfig);
-                const db = firebase.firestore();
-                const auth = firebase.auth();
+                db = firebase.firestore();
+                auth = firebase.auth();
 
-                console.log("Firebase initialized successfully");
+                console.log("Firebase initialized - db and auth ready");
 
                 let userId = localStorage.getItem('tallyUserId') || 'device_' + Math.random().toString(36).slice(2, 9);
                 localStorage.setItem('tallyUserId', userId);
@@ -312,7 +314,7 @@
         }
 
         async function loadDayData() {
-            console.log("loadDayData() started for date:", currentDate);
+            console.log("loadDayData() started");
             currentDate = document.getElementById('clinicDate')?.value || new Date().toISOString().split('T')[0];
 
             const dates = storage.data[currentCourse]?.dates || {};
@@ -320,21 +322,24 @@
 
             console.log("currentCounts (local):", currentCounts);
 
-            try {
-                const doc = await db.collection('tallies').doc(userId)
-                    .collection('courses').doc(currentCourse)
-                    .collection('dates').doc(currentDate)
-                    .get();
+            if (db) {
+                try {
+                    const doc = await db.collection('tallies').doc(userId)
+                        .collection('courses').doc(currentCourse)
+                        .collection('dates').doc(currentDate)
+                        .get();
 
-                if (doc.exists) {
-                    const cloudData = doc.data();
-                    currentCounts = JSON.parse(cloudData.counts);
-                    console.log('Loaded from Firebase cloud');
-                } else {
-                    console.log('No cloud data - using local');
+                    if (doc.exists) {
+                        currentCounts = JSON.parse(doc.data().counts);
+                        console.log("Loaded from cloud");
+                    } else {
+                        console.log("Using local");
+                    }
+                } catch (err) {
+                    console.error("Firestore load error:", err);
                 }
-            } catch (error) {
-                console.error('Cloud load failed:', error);
+            } else {
+                console.warn("Firestore (db) not ready - using local data only");
             }
 
             // Safety fallback
@@ -352,6 +357,11 @@
 
         async function saveDayData() {
             console.log("saveDayData() called");
+            if (!db) {
+                alert("Firestore not ready - save failed. Try again in a moment or check console.");
+                return;
+            }
+
             try {
                 if (!storage.data[currentCourse]) storage.data[currentCourse] = { dates: {} };
                 storage.data[currentCourse].dates[currentDate] = currentCounts;
@@ -369,7 +379,7 @@
                 alert('Saved successfully!');
             } catch (error) {
                 console.error('Save failed:', error);
-                alert('Save failed: ' + error.message + '\nCheck console for details.');
+                alert('Save failed: ' + (error.message || 'Unknown error') + '\nCheck console (F12) for details.');
             }
 
             updateOverallSummary();
@@ -413,7 +423,7 @@
                     item.dataset.name = it.name.toLowerCase();
                     item.dataset.code = (it.code || '').toLowerCase();
 
-                    const count = currentCounts[ci]?.[ii] ?? 0;
+                    const count = currentCounts && currentCounts[ci] && currentCounts[ci][ii] != null ? currentCounts[ci][ii] : 0;
 
                     item.innerHTML = `
                         <span class="item-name">
@@ -422,7 +432,7 @@
                         <div class="controls">
                             <input type="number" min="0" class="count-input" 
                                    value="${count}" 
-                                   onchange="currentCounts[${ci}][${ii}] = Math.max(0, parseInt(this.value) || 0); updateDaySummary();">
+                                   onchange="if (currentCounts && currentCounts[${ci}]) currentCounts[${ci}][${ii}] = Math.max(0, parseInt(this.value) || 0); updateDaySummary();">
                         </div>
                     `;
                     div.appendChild(item);
