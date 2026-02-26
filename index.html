@@ -101,8 +101,12 @@
     <script>
         let firebaseLoaded = false;
 
-        function loadFirebase() {
-            if (firebaseLoaded) return;
+        function loadFirebase(callback) {
+            if (firebaseLoaded) {
+                if (callback) callback();
+                return;
+            }
+
             firebaseLoaded = true;
 
             const sdkVersion = '10.14.1';
@@ -112,19 +116,20 @@
                 `https://www.gstatic.com/firebasejs/${sdkVersion}/firebase-auth-compat.js`
             ];
 
+            let loadedCount = 0;
             scripts.forEach(src => {
                 const script = document.createElement('script');
                 script.src = src;
                 script.async = true;
-                script.onload = () => console.log(`Firebase SDK loaded: ${src}`);
+                script.onload = () => {
+                    loadedCount++;
+                    console.log(`Firebase SDK loaded: ${src}`);
+                    if (loadedCount === scripts.length && callback) callback();
+                };
                 script.onerror = () => console.error(`Failed to load Firebase SDK: ${src}`);
                 document.head.appendChild(script);
             });
         }
-
-        // Trigger Firebase load only on interaction
-        document.getElementById('googleSignInBtn').addEventListener('click', loadFirebase);
-        document.querySelector('.save-day').addEventListener('click', loadFirebase);
     </script>
 
     <script>
@@ -294,7 +299,7 @@
             updateOverallSummary();
             listDates();
 
-            // Cloud sync in background (non-blocking)
+            // Cloud sync in background with timeout
             if (db && userId) {
                 const timeoutId = setTimeout(() => {
                     saveBtn.textContent = 'Local Saved';
@@ -303,8 +308,7 @@
                         saveBtn.textContent = originalText;
                         saveBtn.disabled = false;
                     }, 2000);
-                    alert('Local save successful. Cloud sync timed out.');
-                }, 8000); // max 8 seconds
+                }, 10000); // 10-second max
 
                 db.collection('tallies').doc(userId)
                     .collection('courses').doc(currentCourse)
@@ -441,34 +445,23 @@
                 const b = document.createElement('button');
                 b.className = 'date-btn';
                 b.textContent = d;
-                b.addEventListener('click', () => {
-                    document.getElementById('clinicDate').value = d;
-                    loadDayData();
-                });
-
+                b.onclick = () => { document.getElementById('clinicDate').value = d; loadDayData(); };
                 const del = document.createElement('button');
                 del.className = 'delete-date';
                 del.textContent = '×';
-                del.addEventListener('click', e => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    e.stopImmediatePropagation();
-                    if (confirm(`Delete ${d} in ${currentCourse}?`)) {
-                        delete storage.data[currentCourse].dates[d];
-                        localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
-                        listDates();
-                        if (d === currentDate) {
-                            currentDate = new Date().toISOString().split('T')[0];
-                            document.getElementById('clinicDate').value = currentDate;
-                            loadDayData();
-                        }
-                    }
-                }, true);
-
+                del.onclick = e => { e.stopPropagation(); deleteDay(d); };
                 b.appendChild(del);
                 w.appendChild(b);
                 cont.appendChild(w);
             });
+        }
+
+        function deleteDay(date) {
+            if (confirm(`Delete ${date} in ${currentCourse}?`)) {
+                delete storage.data[currentCourse].dates[date];
+                localStorage.setItem('dental_multi_course_tally_v3', JSON.stringify(storage));
+                listDates();
+            }
         }
 
         function filterItems() {
@@ -558,6 +551,29 @@
 
         // Start app
         init();
+
+        // Google Sign-In - retry until Firebase is ready
+        document.getElementById('googleSignInBtn').addEventListener('click', function attemptSignIn() {
+            console.log("Google Sign-In button clicked");
+
+            if (!window.firebase || !window.firebase.auth) {
+                console.log("Firebase not ready yet - retrying in 500ms");
+                setTimeout(attemptSignIn, 500);
+                return;
+            }
+
+            console.log("Firebase ready - attempting sign-in");
+
+            const provider = new firebase.auth.GoogleAuthProvider();
+            firebase.auth().signInWithPopup(provider)
+                .then(result => {
+                    console.log("Sign-in success:", result.user.displayName || result.user.email);
+                })
+                .catch(err => {
+                    console.error("Sign-in failed:", err.code, err.message);
+                    alert("Sign in failed: " + err.message);
+                });
+        });
     </script>
 </body>
 </html>
